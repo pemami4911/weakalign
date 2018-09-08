@@ -217,8 +217,8 @@ if args.eval_metric=='pck':
     metric = 'pck'
 do_aff = args.model_aff!=""
 do_tps = args.model_tps!=""
-two_stage = args.model!='' or (do_aff and do_tps)
-
+#two_stage = args.model!='' or (do_aff and do_tps)
+two_stage = True
 
 if args.categories==0: 
     eval_categories = np.array(range(20))+1

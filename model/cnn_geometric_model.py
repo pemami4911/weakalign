@@ -243,6 +243,8 @@ class TwoStageCNNGeometric(CNNGeometric):
             # feature extraction
             f_src = self.FeatureExtraction(batch['source_image'])
             f_tgt = self.FeatureExtraction(batch['target_image'])
+            self.f_srcc = f_src
+            self.f_tgtt = f_tgt
         # feature correlation
         correlation_1 = self.FeatureCorrelation(f_src,f_tgt)
         # regression to tnf parameters theta
