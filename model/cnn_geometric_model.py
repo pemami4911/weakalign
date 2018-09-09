@@ -243,12 +243,13 @@ class TwoStageCNNGeometric(CNNGeometric):
             # feature extraction
             f_src = self.FeatureExtraction(batch['source_image'])
             f_tgt = self.FeatureExtraction(batch['target_image'])
-            self.f_srcc = f_src
-            self.f_tgtt = f_tgt
+            #self.f_srcc = f_src
+            #self.f_tgtt = f_tgt
         # feature correlation
         correlation_1 = self.FeatureCorrelation(f_src,f_tgt)
         # regression to tnf parameters theta
         theta_1 = self.FeatureRegression(correlation_1)
+        
         
         #===  STAGE 2 ===#        
         # warp image 1
@@ -267,3 +268,113 @@ class TwoStageCNNGeometric(CNNGeometric):
             return (theta_1,theta_2,correlation_1,correlation_2)
         else:
             return (theta_1,theta_2)
+
+
+class PPOFeatureRegression(nn.Module):
+    def __init__(self, output_dim=6, use_cuda=True, batch_normalization=True, kernel_sizes=[7,5], channels=[128,64] ,feature_size=15):
+        super(FeatureRegression, self).__init__()
+        num_layers = len(kernel_sizes)
+        nn_modules = list()
+        for i in range(num_layers):
+            if i==0:
+                ch_in = feature_size*feature_size
+            else:
+                ch_in = channels[i-1]
+            ch_out = channels[i]
+            k_size = kernel_sizes[i]
+            nn_modules.append(nn.Conv2d(ch_in, ch_out, kernel_size=k_size, padding=0))
+            if batch_normalization:
+                nn_modules.append(nn.BatchNorm2d(ch_out))
+            nn_modules.append(nn.ReLU(inplace=True))
+        self.conv = nn.Sequential(*nn_modules)        
+        #self.linear = nn.Linear(ch_out * k_size * k_size, output_dim)
+        if use_cuda:
+            self.conv.cuda()
+        #    self.linear.cuda()
+        self.output_size = ch_out * k_size * k_size
+
+    def forward(self, x):
+        x = self.conv(x)
+        x = x.view(x.size(0), -1)
+        #x = self.linear(x)
+        return x
+
+class PPOTwoStageCNNGeometric(CNNGeometric):
+    def __init__(self, 
+                 fr_feature_size=15,
+                 fr_kernel_sizes=[7,5],
+                 fr_channels=[128,64],
+                 feature_extraction_cnn='vgg', 
+                 feature_extraction_last_layer='',
+                 return_correlation=False,                  
+                 normalize_features=True,
+                 normalize_matches=True, 
+                 batch_normalization=True, 
+                 train_fe=False,
+                 use_cuda=True,
+                 s1_output_dim=6,
+                 s2_output_dim=18):
+
+        super(TwoStageCNNGeometric, self).__init__(output_dim=s1_output_dim, 
+                                                   fr_feature_size=fr_feature_size,
+                                                   fr_kernel_sizes=fr_kernel_sizes,
+                                                   fr_channels=fr_channels,
+                                                   feature_extraction_cnn=feature_extraction_cnn,
+                                                   feature_extraction_last_layer=feature_extraction_last_layer,
+                                                   return_correlation=return_correlation,
+                                                   normalize_features=normalize_features,
+                                                   normalize_matches=normalize_matches,
+                                                   batch_normalization=batch_normalization,
+                                                   train_fe=train_fe,
+                                                   use_cuda=use_cuda)
+        
+        if s1_output_dim==6:
+            self.geoTnf = GeometricTnf(geometric_model='affine', use_cuda=use_cuda)
+        else:
+            tps_grid_size = np.sqrt(s2_output_dim/2)
+            self.geoTnf = GeometricTnf(geometric_model='tps', tps_grid_size=tps_grid_size, use_cuda=use_cuda)
+        
+        self.FeatureRegression2 = PPOFeatureRegression(output_dim=s2_output_dim,
+                                                    use_cuda=use_cuda,
+                                                    feature_size=fr_feature_size,
+                                                    kernel_sizes=fr_kernel_sizes,
+                                                    channels=fr_channels,
+                                                    batch_normalization=batch_normalization)        
+        
+        self.critic_linear = nn.Linear(self.output_size, 1)
+
+    @property
+    def output_size(self):
+        return self.FeatureRegression2.output_size
+
+    def forward(self, batch, f_src=None, f_tgt=None, use_theta_GT_aff=False): 
+        #===  STAGE 1 ===#
+        if f_src is None and f_tgt is None:
+            # feature extraction
+            f_src = self.FeatureExtraction(batch['source_image'])
+            f_tgt = self.FeatureExtraction(batch['target_image'])
+            #self.f_srcc = f_src
+            #self.f_tgtt = f_tgt
+        # feature correlation
+        correlation_1 = self.FeatureCorrelation(f_src,f_tgt)
+        # regression to tnf parameters theta
+        theta_1 = self.FeatureRegression(correlation_1)
+        
+        #===  STAGE 2 ===#        
+        # warp image 1
+        if use_theta_GT_aff==False:
+            source_image_wrp = self.geoTnf(batch['source_image'],theta_1)
+        else:
+            source_image_wrp = self.geoTnf(batch['source_image'],batch['theta_GT_aff'])
+        # feature extraction
+        f_src_wrp = self.FeatureExtraction(source_image_wrp)
+        # feature correlation
+        correlation_2 = self.FeatureCorrelation(f_src_wrp,f_tgt)
+        # regression to tnf parameters theta
+        theta_2 = self.FeatureRegression2(correlation_2)
+        
+        #if self.return_correlation:
+        #    return (theta_1,theta_2,correlation_1,correlation_2)
+        #else:
+        #    return (theta_1,theta_2)
+        return self.critic_linear(theta_2), theta_2, theta_1

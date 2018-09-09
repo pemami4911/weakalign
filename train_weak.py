@@ -137,7 +137,6 @@ def inlier_score_function(theta_aff,theta_aff_tps,corr_aff,corr_aff_tps,minimize
 def loss_fun(batch):
     
     theta_aff,theta_aff_tps,corr_aff,corr_aff_tps=model(batch)
-    
     inlier_score_pos = inlier_score_function(theta_aff,
                                              theta_aff_tps,
                                              corr_aff,
@@ -195,7 +194,7 @@ def process_epoch(mode,epoch,model,loss_fn,optimizer,dataloader,batch_preprocess
             optimizer.zero_grad()
         tnf_batch = batch_preprocessing_fn(batch)
         loss = loss_fn(tnf_batch)
-        loss_np = loss.data.cpu().numpy()[0]
+        loss_np = loss.data.cpu().numpy()
         epoch_loss += loss_np
         if mode=='train':
             loss.backward()
